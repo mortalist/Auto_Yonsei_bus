@@ -1,5 +1,4 @@
 from playwright.sync_api import sync_playwright
-import time
 from secret import LOGIN_ID, LOGIN_PW
 
 # ──────────────────────────────────────────────
@@ -59,15 +58,15 @@ def run():
         # ── 1. 포털 접속 및 로그인 ──────────────────
         page.goto("https://portal.yonsei.ac.kr")
         page.wait_for_load_state("networkidle")
+        page.get_by_role("link", name="로그인").first.wait_for(state="visible")
 
         page.get_by_role("link", name="로그인").first.click()
-        page.wait_for_load_state("networkidle")
+        page.locator("#loginId").wait_for(state="visible")
 
         page.locator("#loginId").fill(LOGIN_ID)
         page.locator("input[type='password']").first.fill(LOGIN_PW)
         page.get_by_role("link", name="로그인(Login)").click()
-        page.wait_for_load_state("networkidle")
-        time.sleep(3)  # iframe 내부 콘텐츠 로드 대기
+        page.locator("iframe").first.wait_for(state="attached")  # iframe 내부 콘텐츠 로드 대기
 
         # 로그인 후 화면 저장 (디버그용)
         page.screenshot(path="debug_after_login.png")
@@ -88,7 +87,7 @@ def run():
                 with context.expect_page() as new_page_info:
                     link.click()
                 bus_page = new_page_info.value
-                bus_page.wait_for_load_state("networkidle")
+                bus_page.get_by_role("button", name="예약").wait_for(state="visible")
                 break
             except Exception:
                 continue
@@ -99,17 +98,13 @@ def run():
             raise RuntimeError("국제캠퍼스 셔틀버스 링크를 찾을 수 없습니다.")
 
         # ── 3. 예약 화면 진입 ───────────────────────
-        time.sleep(3)
         bus_page.get_by_role("button", name="예약").click()
-        bus_page.wait_for_load_state("networkidle")
-        # time.sleep(3)
+        bus_page.get_by_role("combobox", name="출발지역").wait_for(state="visible")
 
         # ── 4. 출발지역 및 예약일자 입력 ───────────
         fill_combobox(bus_page, "출발지역", DEPARTURE)
-        time.sleep(10)
+        bus_page.get_by_role("textbox", name="예약일자").wait_for(state="visible")
         fill_datebox(bus_page, "예약일자", TARGET_DATE)
-        bus_page.wait_for_load_state("networkidle")
-        time.sleep(10)
 
         # 그리드가 실제로 렌더링될 때까지 대기 (최대 15초)
         # cl-viewing 클래스로 인해 DOM엔 있지만 CSS상 hidden이므로 attached로 확인
@@ -125,23 +120,20 @@ def run():
 
         # ── 5. 탑승 사유 선택 ───────────────────────
         # 해당 시간대 행을 찾아 탑승 사유 콤보박스를 클릭합니다.
+        bus_page.locator("div.cl-grid-row").filter(has_text=TARGET_TIME).first.wait_for(state="attached")
         target_row = bus_page.locator("div.cl-grid-row").filter(has_text=TARGET_TIME).first
         reason_box = target_row.locator(".cl-control.cl-combobox.display-text > div > div > .cl-text").first
         reason_box.click(force=True)
         bus_page.keyboard.type(RIDE_REASON, delay=100)
         bus_page.keyboard.press("Enter")
 
-        time.sleep(2)
+        신청_btn = target_row.locator(".cl-text", has_text="신청").first
+        신청_btn.wait_for(state="visible")
         bus_page.screenshot(path="debug_after_reason_selected.png")
-
 
         # ── 6. 신청 버튼 클릭 + 확인 팝업 수락 ─────
         # 신청 클릭 → "신청하시겠습니까?" → "신청되었습니다" 순서로
         # 팝업이 두 번 뜨므로 on()으로 등록해 모두 자동 수락합니다.
-        target_row = bus_page.locator("div.cl-grid-row").filter(has_text=TARGET_TIME).first
-        신청_btn = target_row.locator(".cl-text", has_text="신청").first
-
-        # 신청 클릭 시 confirm → alert 순으로 dialog가 두 번 뜹니다.
         # 주 처리: JS로 confirm/alert를 직접 덮어씁니다.
         #   confirm() → true  (확인 클릭과 동일)
         #   alert()   → 즉시 닫힘
@@ -149,7 +141,6 @@ def run():
         bus_page.evaluate("window.confirm = () => true; window.alert = () => {};")
         bus_page.on("dialog", accept_dialog)
         신청_btn.click()
-        time.sleep(2)
 
         print("탑승 신청 완료!")
         input("엔터를 누르면 브라우저가 닫힙니다...")
