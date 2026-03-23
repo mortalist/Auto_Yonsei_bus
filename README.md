@@ -80,4 +80,27 @@ auto_yonsei_bus/
 
 ---
 
+## 💡 추천 사용법 (서버 자동 실행)
+
+이론적으로 가장 편한 방법은 **버스 예약일 2일 전 오후 2시** (예매 오픈 시간)에 자동으로 실행되도록 서버에 crontab 등으로 등록해두는 것.
+
+### crontab 예시 (Linux/macOS 서버)
+
+```bash
+# crontab -e 로 편집
+# 매일 오후 2시에 실행 (직접 날짜 맞춰서 돌리거나, main.py에서 TARGET_DATE를 동적으로 계산하도록 수정)
+0 14 * * * /usr/bin/python3 /path/to/auto_yonsei_bus/main.py >> /path/to/auto_yonsei_bus/log.txt 2>&1
+```
+
+### 흐름 요약
+
+1. 예약하고 싶은 날짜 **2일 전** = 예매 오픈일
+2. 오픈일 **오후 2시** = 예매 시작 시간
+3. 그 시간에 서버에서 스크립트가 자동 실행 → 예약 완료
+
+> 🗒️ `TARGET_DATE`를 실행 시점 기준으로 자동 계산하도록 `main.py`를 수정해두면 crontab에 한 번만 등록해도 계속 쓸 수 있음.
+
+---
+
 > 버스 칸 꽉 차기 전에 실행하세요 🏃
+
