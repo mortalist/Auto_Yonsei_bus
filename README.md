@@ -82,15 +82,17 @@ auto_yonsei_bus/
 
 ```bash
 # crontab -e 로 편집
-# 매일 오후 2시에 실행 (직접 날짜 맞춰서 돌리거나, main.py에서 TARGET_DATE를 동적으로 계산하도록 수정)
-0 14 * * * /usr/bin/python3 /path/to/auto_yonsei_bus/main.py >> /path/to/auto_yonsei_bus/log.txt 2>&1
+# 오후 1시 57분에 실행 — 포털 접속 후 WAITFOR_TWO 기능이 서버 시각 기준 14:00:00을 기다렸다가 예약
+57 13 * * * /usr/bin/python3 /path/to/auto_yonsei_bus/main.py >> /path/to/auto_yonsei_bus/log.txt 2>&1
 ```
+
+> `WAITFOR_TWO = True`로 설정하면 스크립트가 포털에 미리 접속해 두고, 포털 서버 시각이 정확히 14:00:00이 되는 순간 예약을 시도합니다. 로컬 시간 오차와 무관하게 서버 시간 기준으로 동작합니다.
 
 ### 흐름 요약
 
 1. 예약하고 싶은 날짜 **2일 전** = 예매 오픈일
-2. 오픈일 **오후 2시** = 예매 시작 시간
-3. 그 시간에 서버에서 스크립트가 자동 실행 → 예약 완료
+2. 오픈일 **오후 1시 57분** → crontab이 스크립트 실행, 포털 접속 완료
+3. **오후 2시 정각** → 서버 시간 확인 후 즉시 예약 시도 → 예약 완료
 
 > 🗒️ `TARGET_DATE`를 실행 시점 기준으로 자동 계산하도록 `main.py`를 수정해두면 crontab에 한 번만 등록해도 계속 쓸 수 있음.
 
