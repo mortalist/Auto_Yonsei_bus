@@ -1,5 +1,7 @@
 import time
-from datetime import datetime, timedelta
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 from playwright.sync_api import sync_playwright
 from secret import LOGIN_ID, LOGIN_PW
@@ -12,6 +14,7 @@ DEPARTURE      = "국제캠퍼스"   # 출발지역
 RIDE_REASON    = "수업"         # 탑승 사유
 TARGET_DATE    = (datetime.now() + timedelta(days=2)).strftime("%Y%m%d")  # 예약일자 (오늘 + 2일)
 TARGET_TIME    = "12:30 ~"  # 예약할 시간대
+WAITFOR_TWO    = True           
 # ──────────────────────────────────────────────
 
 
@@ -44,7 +47,7 @@ def run():
         dialog.accept()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)
         context = browser.new_context(
             viewport={"width": 1280, "height": 720},
             user_agent=(
@@ -57,11 +60,12 @@ def run():
         page.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
         )
-        page.set_default_timeout(50000)
+        page.set_default_timeout(200000)
 
         # ── 1. 포털 접속 및 로그인 ──────────────────
         page.goto("https://portal.yonsei.ac.kr")
         page.wait_for_load_state("networkidle")
+
         page.get_by_role("link", name="로그인").first.wait_for(state="visible")
 
         page.get_by_role("link", name="로그인").first.click()
@@ -87,22 +91,44 @@ def run():
         except Exception:
             pass
 
+        if WAITFOR_TWO:
+            TARGET_HOUR = 14  # 오후 2시
+
+            def get_server_kst():
+                req = urllib.request.Request("https://portal.yonsei.ac.kr")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    date_header = resp.headers.get("Date")
+                utc = parsedate_to_datetime(date_header)
+                return utc.astimezone(timezone(timedelta(hours=9)))
+
+            print("[대기] portal.yonsei.ac.kr 서버 시간 기준 14:00:00 대기 중...")
+            while True:
+                server_kst = get_server_kst()
+                if server_kst.hour >= TARGET_HOUR:
+                    print(f"[대기 완료] 서버 시각: {server_kst.strftime('%H:%M:%S')}")
+                    break
+                target_dt = server_kst.replace(hour=TARGET_HOUR, minute=0, second=0, microsecond=0)
+                seconds_left = (target_dt - server_kst).total_seconds()
+                if seconds_left > 10:
+                    sleep_secs = min(seconds_left - 5, 30)
+                    print(f"[대기] 잔여 {seconds_left:.1f}초 → {sleep_secs:.1f}초 후 재확인")
+                    time.sleep(sleep_secs)
+                else:
+                    time.sleep(0.1)  # 10초 이하: 0.1초 단위 폴링
+
+
         # ── 2. 국제캠퍼스 셔틀버스 탭 열기 ─────────
-        # 포털 내부 iframe을 순회하며 링크를 찾습니다.
+        # main.jsp iframe을 URL로 직접 locate합니다.
         # 링크 클릭 시 새 탭이 열리므로 expect_page()로 캡처합니다.
-        bus_page = None
-        for frame in page.frames:
-            try:
-                # 부분 텍스트 매칭으로 더 유연하게 탐색
-                link = frame.locator("a", has_text="국제캠퍼스").first
-                link.wait_for(state="attached", timeout=2000)
-                with context.expect_page() as new_page_info:
-                    link.click()
-                bus_page = new_page_info.value
-                bus_page.get_by_role("button", name="예약").wait_for(state="visible")
-                break
-            except Exception:
-                continue
+        main_frame = page.frame(url="**/ui/thirdparty/portal/main.jsp")
+        if main_frame is None:
+            raise RuntimeError("포털 메인 iframe을 찾을 수 없습니다.")
+
+        link = main_frame.locator("a", has_text="국제캠퍼스").first
+        with context.expect_page() as new_page_info:
+            link.click()
+        bus_page = new_page_info.value
+        bus_page.get_by_role("button", name="예약").wait_for(state="visible")
 
         if bus_page is None:
             # page.screenshot(path="debug_link_not_found.png")
