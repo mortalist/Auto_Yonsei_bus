@@ -1,3 +1,4 @@
+import os
 import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -14,8 +15,19 @@ DEPARTURE      = "국제캠퍼스"   # 출발지역
 RIDE_REASON    = "수업"         # 탑승 사유
 TARGET_DATE    = (datetime.now() + timedelta(days=2)).strftime("%Y%m%d")  # 예약일자 (오늘 + 2일)
 TARGET_TIME    = "12:30 ~"  # 예약할 시간대
-WAITFOR_TWO    = True           
+WAITFOR_TWO    = True
+LOG_TXT        = True           # 로그 파일 기록 여부 (log.txt)
 # ──────────────────────────────────────────────
+
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.txt")
+
+def log(msg: str):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{now}] {msg}\n"
+    print(line, end="")
+    if LOG_TXT:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line)
 
 
 def fill_combobox(page, name, value):
@@ -42,7 +54,7 @@ def run():
     did_alert = [False]
 
     def accept_dialog(dialog):
-        print(f"[확인창] {dialog.message}")
+        log(f"[확인창] {dialog.message}")
         did_alert[0] = True
         dialog.accept()
 
@@ -62,9 +74,12 @@ def run():
         )
         page.set_default_timeout(200000)
 
+        log(f"[시작] 예약 대상일: {TARGET_DATE}, 시간: {TARGET_TIME}, 출발: {DEPARTURE}")
+
         # ── 1. 포털 접속 및 로그인 ──────────────────
         page.goto("https://portal.yonsei.ac.kr")
         page.wait_for_load_state("networkidle")
+        log("[1단계] 포털 접속 완료")
 
         page.get_by_role("link", name="로그인").first.wait_for(state="visible")
 
@@ -75,6 +90,7 @@ def run():
         page.locator("input[type='password']").first.fill(LOGIN_PW)
         page.get_by_role("link", name="로그인(Login)").click()
         page.locator("iframe").first.wait_for(state="attached")  # iframe 내부 콘텐츠 로드 대기
+        log("[2단계] 로그인 완료")
 
         # 로그인 후 화면 저장 (디버그용)
         # page.screenshot(path="debug_after_login.png")
@@ -101,11 +117,11 @@ def run():
                 utc = parsedate_to_datetime(date_header)
                 return utc.astimezone(timezone(timedelta(hours=9)))
 
-            print("[대기] portal.yonsei.ac.kr 서버 시간 기준 14:00:00 대기 중...")
+            log("[3단계] 서버 시간 14:00 대기 시작")
             while True:
                 server_kst = get_server_kst()
                 if server_kst.hour >= TARGET_HOUR:
-                    print(f"[대기 완료] 서버 시각: {server_kst.strftime('%H:%M:%S')}")
+                    log(f"[3단계 완료] 서버 시각: {server_kst.strftime('%H:%M:%S')}")
                     break
                 target_dt = server_kst.replace(hour=TARGET_HOUR, minute=0, second=0, microsecond=0)
                 seconds_left = (target_dt - server_kst).total_seconds()
@@ -129,6 +145,7 @@ def run():
             link.click()
         bus_page = new_page_info.value
         bus_page.get_by_role("button", name="예약").wait_for(state="visible")
+        log("[4단계] 셔틀버스 예약 페이지 오픈 완료")
 
         if bus_page is None:
             # page.screenshot(path="debug_link_not_found.png")
@@ -143,7 +160,7 @@ def run():
         attempt = 0
         while not did_alert[0] and attempt < 3:
             attempt += 1
-            print(f"[시도 {attempt}/3]")
+            log(f"[5단계] 예약 시도 {attempt}/3 시작")
             did_alert[0] = False
 
             try:
@@ -161,6 +178,7 @@ def run():
                 fill_combobox(bus_page, "출발지역", DEPARTURE)
                 bus_page.get_by_role("textbox", name="예약일자").wait_for(state="visible")
                 fill_datebox(bus_page, "예약일자", TARGET_DATE)
+                log(f"[5단계] 출발지·날짜 입력 완료 ({DEPARTURE}, {TARGET_DATE})")
 
                 # 그리드가 실제로 렌더링될 때까지 대기 (최대 15초)
                 try:
@@ -171,7 +189,9 @@ def run():
                     raise
 
                 # bus_page.screenshot(path="debug_grid_loaded.png")
-                print(f"[DEBUG] 그리드 row 수: {bus_page.locator('div.cl-grid-row').count()}")
+                row_count = bus_page.locator('div.cl-grid-row').count()
+                print(f"[DEBUG] 그리드 row 수: {row_count}")
+                log(f"[5단계] 그리드 로드 완료 (row 수: {row_count})")
 
                 # ── 5. 탑승 사유 선택 ───────────────────────
                 bus_page.locator("div.cl-grid-row").filter(has_text=TARGET_TIME).first.wait_for(state="attached")
@@ -181,26 +201,29 @@ def run():
                 bus_page.keyboard.type(RIDE_REASON, delay=100)
                 bus_page.keyboard.press("Enter")
                 time.sleep(1)
+                log(f"[5단계] 탑승 사유 입력 완료: {RIDE_REASON}")
 
                 신청_btn = target_row.locator(".cl-text", has_text="신청").first
                 신청_btn.wait_for(state="visible")
                 bus_page.screenshot(path="debug_after_reason_selected.png")
 
                 # ── 6. 신청 버튼 클릭 + 확인 팝업 수락 ─────
+                log("[5단계] 신청 버튼 클릭 완료, 확인창 대기 중")
                 신청_btn.click(click_count=3)
                 time.sleep(2)
                 # bus_page.screenshot(path="debug_after_application.png")
 
             except Exception as e:
-                print(f"[{attempt}번째 시도 실패] {e}")
+                log(f"[실패] {attempt}번째 시도 실패: {e}")
                 if attempt >= 3:
                     raise
 
         if did_alert[0]:
-            print("탑승 신청 완료!")
+            log("[완료] 탑승 신청 성공!")
         else:
-            print("[경고] 3번 시도했으나 alert가 확인되지 않았습니다. 예약 결과를 직접 확인하세요.")
+            log("[경고] 3번 시도 후 alert 미확인 - 수동 확인 필요")
 
+        log("[종료] 브라우저 종료\n" + "─" * 50)
         browser.close()
 
 
