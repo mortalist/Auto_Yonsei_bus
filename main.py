@@ -14,7 +14,7 @@ from secret import LOGIN_ID, LOGIN_PW
 DEPARTURE      = "국제캠퍼스"   # 출발지역
 RIDE_REASON    = "수업"         # 탑승 사유
 TARGET_DATE    = (datetime.now() + timedelta(days=2)).strftime("%Y%m%d")  # 예약일자 (오늘 + 2일)
-TARGET_TIME    = "12:30 ~"  # 예약할 시간대
+TARGET_TIME    = "11:30 ~"  # 예약할 시간대
 WAITFOR_TWO    = True
 LOG_TXT        = True           # 로그 파일 기록 여부 (log.txt)
 # ──────────────────────────────────────────────
@@ -144,6 +144,7 @@ def run():
         with context.expect_page() as new_page_info:
             link.click()
         bus_page = new_page_info.value
+        bus_page.set_default_timeout(200000)
         bus_page.get_by_role("button", name="예약").wait_for(state="visible")
         log("[4단계] 셔틀버스 예약 페이지 오픈 완료")
 
@@ -196,16 +197,34 @@ def run():
                 # ── 5. 탑승 사유 선택 ───────────────────────
                 bus_page.locator("div.cl-grid-row").filter(has_text=TARGET_TIME).first.wait_for(state="attached")
                 target_row = bus_page.locator("div.cl-grid-row").filter(has_text=TARGET_TIME).first
+
+                # 로딩 오버레이(#mpopup_bg)가 사라질 때까지 대기 (최대 30초)
+                overlay = bus_page.locator("#mpopup_bg")
+                if overlay.is_visible():
+                    log("[5단계] 로딩 오버레이(#mpopup_bg) 감지 — 사라질 때까지 대기 중")
+                    try:
+                        overlay.wait_for(state="hidden", timeout=50000)
+                        log("[5단계] 로딩 오버레이 사라짐 — 입력 진행")
+                    except Exception:
+                        log("[5단계] 경고: 오버레이 대기 timeout — 강제 진행")
+                else:
+                    log("[5단계] 로딩 오버레이 없음 — 바로 입력 진행")
+
                 reason_box = target_row.locator(".cl-control.cl-combobox.display-text > div > div > .cl-text").first
                 reason_box.click(force=True)
                 bus_page.keyboard.type(RIDE_REASON, delay=100)
                 bus_page.keyboard.press("Enter")
                 time.sleep(1)
+
+                # 입력값 검증: 실제로 입력됐는지 확인 (표시용 div이므로 inner_text 사용)
+                actual_value = reason_box.inner_text()
+                if not actual_value.strip():
+                    raise RuntimeError("탑승 사유 입력 실패: 입력값이 비어있음 (오버레이 간섭 가능성)")
                 log(f"[5단계] 탑승 사유 입력 완료: {RIDE_REASON}")
 
                 신청_btn = target_row.locator(".cl-text", has_text="신청").first
                 신청_btn.wait_for(state="visible")
-                bus_page.screenshot(path="debug_after_reason_selected.png")
+                # bus_page.screenshot(path="debug_after_reason_selected.png")
 
                 # ── 6. 신청 버튼 클릭 + 확인 팝업 수락 ─────
                 log("[5단계] 신청 버튼 클릭 완료, 확인창 대기 중")

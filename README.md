@@ -40,10 +40,12 @@ LOGIN_PW = "포털 비밀번호"
 `main.py` 상단 설정값 수정
 
 ```python
-DEPARTURE   = "신촌캠퍼스"   # 출발지역
+DEPARTURE   = "국제캠퍼스"   # 출발지역 ("국제캠퍼스" 또는 "신촌캠퍼스")
 RIDE_REASON = "수업"          # 탑승 사유
-TARGET_DATE = "20260305"      # 예약일자 (YYYYMMDD)
-TARGET_TIME = "07:20 ~"       # 예약할 시간대
+TARGET_DATE = (datetime.now() + timedelta(days=2)).strftime("%Y%m%d")  # 예약일자 (오늘 + 2일, 자동 계산)
+TARGET_TIME = "11:30 ~"       # 예약할 시간대
+WAITFOR_TWO = True            # True: 포털 서버 시각 14:00 정각에 예약 시도
+LOG_TXT     = True            # True: 실행 로그를 log.txt에 기록
 ```
 
 ### 4. 실행
@@ -69,6 +71,7 @@ auto_yonsei_bus/
 ├── main.py               # 메인 스크립트
 ├── secret.py             # 🔒 자격증명 (git 제외)
 ├── secret.example.py     # 자격증명 예시
+├── log.txt               # 📝 실행 로그 (자동 생성, git 제외)
 └── .gitignore
 ```
 
@@ -90,11 +93,9 @@ auto_yonsei_bus/
 
 ### 흐름 요약
 
-1. 예약하고 싶은 날짜 **2일 전** = 예매 오픈일
+1. 예약하고 싶은 날짜 **2일 전** = 예매 오픈일 (`TARGET_DATE`는 자동으로 오늘+2일로 계산됨)
 2. 오픈일 **오후 1시 57분** → crontab이 스크립트 실행, 포털 접속 완료
 3. **오후 2시 정각** → 서버 시간 확인 후 즉시 예약 시도 → 예약 완료
-
-> 🗒️ `TARGET_DATE`를 실행 시점 기준으로 자동 계산하도록 `main.py`를 수정해두면 crontab에 한 번만 등록해도 계속 쓸 수 있음.
 
 ---
 
